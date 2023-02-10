@@ -1,20 +1,27 @@
 -- 1. Find all players in the database who played at Vanderbilt University. Create a list showing each player's first and last names as well as the total salary they earned in the major leagues. Sort this list in descending order by the total salary earned. Which Vanderbilt player earned the most money in the majors?
 
-SELECT 
-		playerid, 
-		p.namefirst,
-		p.namelast,
-		COALESCE(SUM(sal.salary), 0) AS total_earned
-FROM people AS p
-INNER JOIN collegeplaying AS cp
+WITH 
+earnings AS(
+	SELECT  playerid,
+			SUM(salary) as big_league_pay 
+	FROM salaries
+	GROUP BY playerid
+),
+vandy AS(
+	SELECT DISTINCT(playerid)
+	FROM collegeplaying
+	WHERE schoolid = 'vandy'
+)
+SELECT playerid, 
+	   p.namefirst,
+	   p.namelast, 
+	   COALESCE(big_league_pay, 0)::NUMERIC::MONEY as total_pay
+FROM people as p
+INNER JOIN vandy
 USING(playerid)
-INNER JOIN schools AS sch
-USING(schoolid)
-LEFT JOIN salaries AS sal
+LEFT JOIN earnings
 USING(playerid)
-WHERE schoolname = 'Vanderbilt University'
-GROUP BY playerid
-ORDER BY total_earned DESC;
+ORDER BY total_pay DESC;
 
 -- 2. Using the fielding table, group players into three groups based on their position: label players with position OF as "Outfield", those with position "SS", "1B", "2B", and "3B" as "Infield", and those with position "P" or "C" as "Battery". Determine the number of putouts made by each of these three groups in 2016.
 
@@ -133,18 +140,18 @@ LIMIT 1; -- "St. Louis Cardinals" in 2006 with 83 wins.
 
 WITH
 wins_per_team_per_season AS (
-  SELECT yearid, 
+	SELECT yearid, 
 		 teamid, 
 		 SUM(w) AS team_wins
-  FROM teams
-  GROUP BY yearid, teamid
+	FROM teams
+	GROUP BY yearid, teamid
 ), 
 most_wins_per_season AS (
-  SELECT yearid, 
+	SELECT yearid, 
 		 MAX(team_wins) AS max_wins_for_the_year
-  FROM wins_per_team_per_season
-  WHERE yearID BETWEEN 1970 AND 2016
-  GROUP BY yearid
+	FROM wins_per_team_per_season
+	WHERE yearID BETWEEN 1970 AND 2016
+	GROUP BY yearid
 ), 
 ws_winners AS (
 	SELECT yearid, teamid AS teamid_wswinner 
@@ -152,15 +159,41 @@ ws_winners AS (
 	WHERE wswin = 'Y'
 )
 SELECT ROUND((SUM(CASE WHEN team_wins = max_wins_for_the_year AND teamid = teamid_wswinner THEN 1
-			 ELSE 0 END)/COUNT(*)::NUMERIC)*100, 2) AS percentage_of_most_wins_and_ws
+			 		   ELSE 0 END
+				 )/COUNT(*)::NUMERIC
+			 )*100, 2) AS percentage_of_most_wins_and_ws
 FROM wins_per_team_per_season as wptps
 INNER JOIN most_wins_per_season as mwps
 USING(yearid)
 INNER JOIN ws_winners as ws
-USING(yearid)
+USING(yearid);
 
 
 -- 6. Which managers have won the TSN Manager of the Year award in both the National League (NL) and the American League (AL)? Give their full name and the teams that they were managing when they won the award.
+WITH great_managers AS (
+	SELECT 
+	 	playerid
+	FROM awardsmanagers
+	WHERE awardid LIKE '%TSN%'
+	GROUP BY playerid
+	HAVING COUNT(DISTINCT lgid) > 1
+),
+great_managers_years AS (
+	SELECT *
+	FROM awardsmanagers
+	WHERE playerid IN (SELECT playerid FROM great_managers)
+		AND awardid LIKE '%TSN%'
+
+)
+
+SELECT namefirst, namelast, gmy.yearid, gmy.lgid, teamid, name
+FROM great_managers_years AS gmy
+INNER JOIN people
+USING(playerid)
+LEFT JOIN managers
+USING(playerid, yearid, lgid)
+LEFT JOIN teams
+USING(yearid, lgid, teamid)
 
 -- 7. Which pitcher was the least efficient in 2016 in terms of salary / strikeouts? Only consider pitchers who started at least 10 games (across all teams). Note that pitchers often play for more than one team in a season, so be sure that you are counting all stats for each player.
 
